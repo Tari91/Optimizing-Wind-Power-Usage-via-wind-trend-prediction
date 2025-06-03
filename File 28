@@ -1,0 +1,76 @@
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+from sklearn.preprocessing import MinMaxScaler
+from tensorflow.keras.models import Sequential
+from tensorflow.keras.layers import LSTM, Dense
+
+# 1. Generate synthetic wind speed data (hourly data for 1 year)
+np.random.seed(42)
+hours = 24 * 365
+time = np.arange(hours)
+wind_speed = 10 + 3 * np.sin(2 * np.pi * time / 24) + 2 * np.random.randn(hours)
+
+# Create DataFrame
+df = pd.DataFrame({'wind_speed': wind_speed})
+
+# 2. Normalize the data
+scaler = MinMaxScaler()
+scaled_wind = scaler.fit_transform(df[['wind_speed']])
+
+# 3. Create sequences for LSTM
+def create_sequences(data, window_size=24):
+    X, y = [], []
+    for i in range(len(data) - window_size):
+        X.append(data[i:i+window_size])
+        y.append(data[i+window_size])
+    return np.array(X), np.array(y)
+
+window_size = 24
+X, y = create_sequences(scaled_wind, window_size)
+
+# 4. Split into train/test
+split = int(0.8 * len(X))
+X_train, X_test = X[:split], X[split:]
+y_train, y_test = y[:split], y[split:]
+
+# 5. Define LSTM model
+model = Sequential([
+    LSTM(64, input_shape=(window_size, 1)),
+    Dense(1)
+])
+model.compile(optimizer='adam', loss='mse')
+model.fit(X_train, y_train, epochs=10, batch_size=32, validation_data=(X_test, y_test))
+
+# 6. Predict and inverse transform
+y_pred = model.predict(X_test)
+y_pred_inv = scaler.inverse_transform(y_pred)
+y_test_inv = scaler.inverse_transform(y_test)
+
+# 7. Plot predicted vs actual
+plt.figure(figsize=(10, 4))
+plt.plot(y_test_inv, label='Actual Wind Speed')
+plt.plot(y_pred_inv, label='Predicted Wind Speed')
+plt.title("Wind Speed Prediction")
+plt.xlabel("Time Step")
+plt.ylabel("Wind Speed (m/s)")
+plt.legend()
+plt.show()
+
+# 8. Simple Optimization Logic
+# Thresholds for turning on/off storage or demand response
+def wind_optimization(predicted_speed):
+    usage_strategy = []
+    for speed in predicted_speed:
+        if speed > 12:
+            usage_strategy.append("Store Excess Energy")
+        elif speed < 5:
+            usage_strategy.append("Activate Backup Power")
+        else:
+            usage_strategy.append("Normal Operation")
+    return usage_strategy
+
+# Apply optimization logic
+future_strategy = wind_optimization(y_pred_inv.flatten()[:48])
+for i, action in enumerate(future_strategy):
+    print(f"Hour {i+1}: {action}")
